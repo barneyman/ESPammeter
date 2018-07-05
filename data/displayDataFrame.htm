@@ -1,0 +1,116 @@
+<HTML>
+<HEAD>
+<link rel="stylesheet" type="text/css" href="switch.css">
+
+    <script src="Chart.bundle.min.js"></script>
+
+</HEAD>
+<BODY>
+    <div style="width:75%;">
+        <canvas id="dataCanvas"></canvas>
+        </div>
+
+        <script>
+
+
+            window.chartColors = {
+                red: 'rgb(255, 99, 132)',
+                orange: 'rgb(255, 159, 64)',
+                yellow: 'rgb(255, 205, 86)',
+                green: 'rgb(75, 192, 192)',
+                blue: 'rgb(54, 162, 235)',
+                purple: 'rgb(153, 102, 255)',
+                grey: 'rgb(201, 203, 207)'
+            };
+
+            var config = {
+                type: 'line',
+                data: {
+                    //labels: ['a', 'b', 'c', 'd', 'e', 'f', 'g'],
+                    datasets: [{
+                        label: 'Current over time',
+                        backgroundColor: window.chartColors.red,
+                        borderColor: window.chartColors.red,
+                        //data: [
+                        //    1, 2, 3, 4, 5, 6, 7
+                        //],
+                        fill: false,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    title: {
+                        display: true,
+                        text: 'Current over Time'
+                    },
+                    tooltips: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    hover: {
+                        mode: 'nearest',
+                        intersect: true
+                    },
+                    scales: {
+                        xAxes: [{
+                            display: true,
+                            scaleLabel: {
+                                display: true,
+                                labelString: 'seconds'
+                            }
+                        }],
+                        yAxes: [{
+                            display: true,
+                            scaleLabel: {
+                                display: true,
+                                labelString: 'milliamp'
+                            }
+                        }]
+                    }
+                }
+            };
+
+            window.onload = function () {
+
+                fetchData()
+
+                var ctx = document.getElementById('dataCanvas').getContext('2d');
+                window.myLine = new Chart(ctx, config);
+            };
+
+            function dataLoaded() {
+
+            }
+
+
+            function fetchData() {
+
+                let url = 'rawdata.json'
+
+                fetch(url)
+                    .then(function (response) { return response.json(); })
+                    .then(function (data) {
+
+                        config.data.datasets[0].data = data['data'];
+
+                        
+                        // then change the labels
+
+                        config.data.labels = new Array(data['data'].length)
+
+                        for (var loop = 0; loop < config.data.labels.length ; loop++)
+                            config.data.labels[loop] = (loop + 1).toString();
+
+                        //config.data.labels = data['data'];
+
+                        window.myLine.update()
+                    })
+
+
+
+            }
+
+
+        </script>
+</BODY>
+</HTML>
