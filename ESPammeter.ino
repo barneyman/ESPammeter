@@ -58,8 +58,9 @@ public:
 	int m_open, m_close, m_hi, m_lo;
 };
 
-
-typedef circQueueT<60, ochl, int> currentQueue;
+#define _SAMPLE_PERIOD_MILLIS	1000
+// sample every second, store 5 mins worth
+typedef circQueueT<300, ochl, int> currentQueue;
 
 currentQueue dataReadings;
 
@@ -94,7 +95,7 @@ bool readConfig()
 
 
 #define _MYVERSION	"1.0"
-#define _PAGESIZE	5
+#define _PAGESIZE	15
 
 volatile bool collecting = true;
 
@@ -180,7 +181,7 @@ void setup()
 
 		JsonArray &dataArray = root.createNestedArray("data");
 
-		for (int leaf = 0; leaf < _PAGESIZE; leaf++)
+		for (int leaf = 0; (leaf < _PAGESIZE) && dataReadings.available(); leaf++)
 		{
 			JsonObject &pageleaf=dataArray.createNestedObject();
 
@@ -190,12 +191,14 @@ void setup()
 			pageleaf["c"] = thisOne.m_close;
 			pageleaf["h"] = thisOne.m_hi;
 			pageleaf["l"] = thisOne.m_lo;
-			pageleaf["t"] = (pageNumber * 5) + leaf;
+			pageleaf["t"] = (pageNumber * _PAGESIZE) + leaf;
 			yield();
 		}
 
 		String jsonText;
 		root.prettyPrintTo(jsonText);
+
+		debugger.println(debug::dbInfo,jsonText);
 
 		wifiInstance.server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
 		wifiInstance.server.send(200, "application/json", jsonText);
@@ -253,7 +256,6 @@ bool reopenWorkingValue = true;
 
 #define _HOUR_IN_MS	(float)(60*60*1000)
 
-#define _SAMPLE_PERIOD_MILLIS	200
 
 void loop()
 {
