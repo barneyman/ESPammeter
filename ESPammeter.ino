@@ -14,156 +14,89 @@
 
 // instance
 Adafruit_INA219 ina219;
-SerialDebug debugger;// (debug::dbImportant);
+SerialDebug debugger(debug::dbVerbose);// (debug::dbImportant);
 SSD1306Device oled;
 
 #include <myWifi.h>
 myWifiClass wifiInstance("wemos_", &debugger);
-myWifiClass::wifiDetails blank;
+myWifiClass::wifiDetails wifiConfig;
 
 
 unsigned long lastMillis = 0, startedMillis=0;
 
 #include <circQ.h>
 
-class tempQ : public circQueueT<500, unsigned, unsigned short>
+class ochl
 {
 public:
-	tempQ() :circQueueT<500, unsigned, unsigned short>(true)
-	{
+	ochl()
+	{}
 
+	void open(int value)
+	{
+		m_open = value;
+		m_lo = 1000;
+		m_hi = -1000;
+		latest(value);
 	}
 
-	// debug
-	void Dump(debugBaseClass *debugger)
+	void close(int value)
 	{
-		debugger->printf(debug::dbImportant, "Dump of CircQ - %u available %u readC %u writeC\n\r", available(), readCursor, writeCursor);
-		for (int peeker = 0; peeker < available(); peeker++)
-		{
-			debugger->printf(debug::dbImportant, "%d,", peek(peeker));
-		}
-		debugger->println(debug::dbImportant, "");
+		m_close = value;
+		latest(value);
 	}
 
+	void latest(int value)
+	{
+		if (value < m_lo)
+			m_lo = value;
+
+		if (value > m_hi)
+			m_hi = value;
+	}
+
+	int m_open, m_close, m_hi, m_lo;
 };
 
 
-typedef circQueueT<1000, unsigned, int> currentQueue;
-//typedef tempQ currentQueue;
+typedef circQueueT<60, ochl, int> currentQueue;
 
 currentQueue dataReadings;
 
-class readingsStreamer : public Stream
+
+#define _JSON_CONFIG_FILE "/config.json"
+
+bool readConfig()
 {
-protected:
 
-	String m_preamble, m_postamble;
-public:
-	readingsStreamer(currentQueue *hostData):m_hostData(hostData), m_preamble("{\"data\":["), m_postamble("]}\n\r")
+	debugger.println(debug::dbVerbose, "reading config");
+
+	// try to read the config - if it fails, create the default
+	fs::File configFile = SPIFFS.open(_JSON_CONFIG_FILE, "r");
+
+	if (!configFile)
 	{
-		// work out the size
-		// {"data":[xxxx,]}
-		// 4 chars and optional comma
-		m_rawDataSize = hostData->available() * 4;
-		// account for the comma
-		if (hostData->available())
-			m_rawDataSize += (hostData->available() - 1);
-
-		m_jsonSize = m_preamble.length()+m_postamble.length() + (m_rawDataSize);
-
-		m_cursor = 0;
-
-		// debug
-		//Serial.printf("\n\r(%d) - ", m_hostData->available());
-		//for(int peek = 0; peek < m_hostData->available();peek++)
-		//{
-		//	Serial.printf("%d ", m_hostData->peek(peek));
-		//}
-		//Serial.println("");
+		debugger.println(debug::dbImportant, "no config file on SPIFFS");
+		return false;
 	}
 
-	String name() { return "rawData"; }
-	size_t size() 
-	{ 
-		return m_jsonSize;
-	}
+	String configText = configFile.readString();
 
-	virtual int available()
-	{
-		return m_jsonSize- m_cursor;
-	}
+	configFile.close();
 
-	virtual int read()
-	{
-		static int currentReading = 0;
-		int retval = -1;
-		if (m_cursor < m_preamble.length())
-		{
-			retval = m_preamble[m_cursor];
-		}
-		else if (m_cursor < (m_preamble.length()+ m_rawDataSize))
-		{
-			size_t temp = (m_cursor - m_preamble.length())%5;
-			switch (temp)
-			{
-			case 0:
-				currentReading = m_hostData->read()%10000;
-				if (currentReading < 1000)
-					retval = ' ';
-				else
-					retval = (currentReading / 1000) + '0';
-				break;
-			case 1:
-				if (currentReading < 100)
-					retval = ' ';
-				else
-					retval = ((currentReading % 1000)/100) + '0';
-				break;
-			case 2:
-				if (currentReading < 10)
-					retval = ' ';
-				else
-					retval = ((currentReading % 100) / 10) + '0';
-				break;
-			case 3:
-				retval = ((currentReading % 10) ) + '0';
-				break;
-			case 4:
-				retval = ',';
-				yield();
-				break;
-			}
-		}
-		else
-		{
-			// must be post amble
-			retval = m_postamble[m_cursor - (m_preamble.length() + m_rawDataSize)];
-		}
-		m_cursor++;
+	DynamicJsonBuffer jsonBuffer;
 
-		//Serial.printf("%c", retval);
+	JsonObject &root = jsonBuffer.parseObject(configText);
 
-		return retval;
-	}
+	return wifiInstance.ReadDetailsFromJSON(root, wifiConfig);
 
-	virtual int peek()
-	{
-		return 1;
-	}
-
-	virtual size_t write(uint8_t ee)
-	{
-		return 0;
-	}
-
-protected:
-
-	currentQueue *m_hostData;
-	size_t m_jsonSize, m_cursor, m_rawDataSize;
-
-};
+}
 
 
+#define _MYVERSION	"1.0"
+#define _PAGESIZE	5
+
+volatile bool collecting = true;
 
 void setup()
 {
@@ -182,8 +115,16 @@ void setup()
 
 	debugger.println(debug::dbInfo, "Running");
 
-	// create an AP
-	wifiInstance.ConnectWifi(myWifiClass::modeAP, blank);
+	if (!readConfig())
+	{
+		// create an AP
+		wifiInstance.QuickStartAP();
+
+	}
+	else
+	{
+		wifiInstance.ConnectWifi(myWifiClass::modeSTA, wifiConfig);
+	}
 
 	wifiInstance.server.on("/", HTTP_GET, []() {
 
@@ -194,15 +135,96 @@ void setup()
 
 	});
 
+	wifiInstance.server.on("/stop", HTTP_GET, []() {
+		collecting = false;
+		wifiInstance.server.send(200);
+	});
 
-	wifiInstance.server.on("/rawdata.json", HTTP_GET, []() {
+	wifiInstance.server.on("/start", HTTP_GET, []() {
+		collecting = true;
+		wifiInstance.server.send(200);
+	});
 
-		// send the json out raw by hijacking the streamFile method
-		readingsStreamer rs(&dataReadings);
-		wifiInstance.server.streamFile(rs, "text/json");
+
+	wifiInstance.server.on("/json/data", HTTP_GET, []() {
+
+		// tell them how many samples we have
+		DynamicJsonBuffer jsonBuffer;
+
+		JsonObject &root = jsonBuffer.createObject();
+
+
+		root["pages"] = (dataReadings.available()/_PAGESIZE)+((dataReadings.size() % _PAGESIZE)?1:0);
+		root["pagesize"] = _PAGESIZE;
+
+		String jsonText;
+		root.prettyPrintTo(jsonText);
+
+		debugger.println(debug::dbVerbose, jsonText);
+
+		wifiInstance.server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+		wifiInstance.server.send(200, "application/json", jsonText);
 
 
 	});
+
+
+	wifiInstance.server.on("/json/page", HTTP_GET, []() {
+
+		// tell them how many samples we have
+		DynamicJsonBuffer jsonBuffer;
+
+		JsonObject &root = jsonBuffer.createObject();
+		int pageNumber= wifiInstance.server.arg("page").toInt();
+		root["page"] = pageNumber;
+
+		JsonArray &dataArray = root.createNestedArray("data");
+
+		for (int leaf = 0; leaf < _PAGESIZE; leaf++)
+		{
+			JsonObject &pageleaf=dataArray.createNestedObject();
+
+			ochl thisOne = dataReadings.read();
+
+			pageleaf["o"] = thisOne.m_open;
+			pageleaf["c"] = thisOne.m_close;
+			pageleaf["h"] = thisOne.m_hi;
+			pageleaf["l"] = thisOne.m_lo;
+			pageleaf["t"] = (pageNumber * 5) + leaf;
+			yield();
+		}
+
+		String jsonText;
+		root.prettyPrintTo(jsonText);
+
+		wifiInstance.server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+		wifiInstance.server.send(200, "application/json", jsonText);
+
+
+	});
+
+
+
+	wifiInstance.server.on("/json/config", HTTP_GET, []() {
+		// give them back the port / switch map
+		debugger.println(debug::dbInfo, "json config called");
+
+		DynamicJsonBuffer jsonBuffer;
+
+		JsonObject &root = jsonBuffer.createObject();
+
+		root["name"] = wifiInstance.m_hostName.c_str();
+		root["version"] = _MYVERSION;
+
+		String jsonText;
+		root.prettyPrintTo(jsonText);
+
+		debugger.println(debug::dbVerbose, jsonText);
+
+		wifiInstance.server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+		wifiInstance.server.send(200, "application/json", jsonText);
+	});
+
 
 
 	fs::Dir dir = SPIFFS.openDir("/");
@@ -224,20 +246,19 @@ float minCurrent = 1000, maxCurrent = 0, lastCurrent = 0;
 float powerConsumed=0;
 
 unsigned long loopCount = 0;
+unsigned long lastSampleMs=0;
 
-
-
-
+ochl workingValue;
+bool reopenWorkingValue = true;
 
 #define _HOUR_IN_MS	(float)(60*60*1000)
+
+#define _SAMPLE_PERIOD_MILLIS	200
 
 void loop()
 {
 
 	float current=ina219.getCurrent_mA();
-
-	//if (current < 0)
-	//	current = 0;
 
 	if (current > maxCurrent)
 		maxCurrent = current;
@@ -252,11 +273,15 @@ void loop()
 
 	//debugger.printf(debug::dbInfo, "%.1f ma (max %.1f min %.1f mah %.3f)\n\r", current, maxCurrent, minCurrent, powerConsumedMAH);
 
-	if (!(loopCount % 1000))
+	if (millis()-lastSampleMs > _SAMPLE_PERIOD_MILLIS)
 	{
+		lastSampleMs = millis();
+
 		unsigned long totalMillis = millis() - startedMillis;
 		float hourRatio = ((float)(totalMillis) / _HOUR_IN_MS);
 		float projectedMAH = powerConsumed / hourRatio;
+
+		oled.setInverse(!collecting);
 
 		String topLine(current, 1);
 		topLine += "ma ";
@@ -298,9 +323,23 @@ void loop()
 		oled.print(nextLine);
 		oled.switchFrame();
 
+		if(loopCount)
+		{
+			workingValue.close(current);
+			if(collecting)
+				dataReadings.write(workingValue);
+		}
+		reopenWorkingValue = true;
 	}
 
-	dataReadings.write(current);
+	if (reopenWorkingValue)
+	{
+		workingValue.open(current);
+		reopenWorkingValue = false;
+	}
+	else
+		workingValue.latest(current);
+
 	//dataReadings.write(loopCount);
 
 	lastCurrent = current;

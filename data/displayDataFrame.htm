@@ -3,9 +3,13 @@
 <link rel="stylesheet" type="text/css" href="switch.css">
 
     <script src="Chart.bundle.min.js"></script>
+    <script src="Chart.Financial.js"></script>
+    <script src="common.js"></script>
 
 </HEAD>
 <BODY>
+
+    <button onclick="fetchData()">Update</button>
     <div style="width:75%;">
         <canvas id="dataCanvas"></canvas>
         </div>
@@ -24,16 +28,13 @@
             };
 
             var config = {
-                type: 'line',
+                type: 'ohlc',
                 data: {
-                    //labels: ['a', 'b', 'c', 'd', 'e', 'f', 'g'],
+                    labels: ['a', 'b', 'c', 'd', 'e', 'f', 'g'],
                     datasets: [{
-                        label: 'Current over time',
                         backgroundColor: window.chartColors.red,
                         borderColor: window.chartColors.red,
-                        //data: [
-                        //    1, 2, 3, 4, 5, 6, 7
-                        //],
+
                         fill: false,
                     }]
                 },
@@ -44,8 +45,8 @@
                         text: 'Current over Time'
                     },
                     tooltips: {
+                        position: 'nearest',
                         mode: 'index',
-                        intersect: false,
                     },
                     hover: {
                         mode: 'nearest',
@@ -85,30 +86,53 @@
 
             function fetchData() {
 
-                let url = 'rawdata.json'
+                // get the number of pages
 
+                config.data.datasets[0].data = new Array();
+
+                let url = base + '/stop'
+                var numPages = 0;
+                fetch(url)
+                    .then(function (response) { 
+
+                    let url = base + '/json/data'
+                    var numPages = 0;
+                    fetch(url)
+                        .then(function (response) { return response.json(); })
+                        .then(function (data) {
+                            numPages=data["pages"]
+                            fetchPage(0,numPages)
+
+                        })
+
+                    })
+        
+            }
+
+
+            function fetchPage(pageNum, totalPages) {
+                let url = base + '/json/page?page=' + pageNum.toString()
                 fetch(url)
                     .then(function (response) { return response.json(); })
                     .then(function (data) {
 
-                        config.data.datasets[0].data = data['data'];
-
-                        
-                        // then change the labels
-
-                        config.data.labels = new Array(data['data'].length)
-
-                        for (var loop = 0; loop < config.data.labels.length ; loop++)
-                            config.data.labels[loop] = (loop + 1).toString();
-
-                        //config.data.labels = data['data'];
-
+                        config.data.datasets[0].data = config.data.datasets[0].data.concat(data["data"]);
                         window.myLine.update()
                     })
-
-
+                    .then(function () {
+                        pageNum++
+                        if(pageNum<totalPages)
+                            fetchPage(pageNum, totalPages)
+                        else
+                        {
+                            let url = base + '/start'
+                            fetch(url)
+                        }
+                    })
 
             }
+
+
 
 
         </script>
