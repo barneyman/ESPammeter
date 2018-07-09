@@ -10,7 +10,11 @@
 
 
 #define FS_NO_GLOBALS	// turn off the 'Using'
+#ifdef ESP8266
 #include <FS.h>
+#else
+#include <spiffs.h>
+#endif
 
 // instance
 Adafruit_INA219 ina219;
@@ -161,7 +165,7 @@ void setup()
 		String jsonText;
 		root.prettyPrintTo(jsonText);
 
-		debugger.println(debug::dbVerbose, jsonText);
+		//debugger.println(debug::dbVerbose, jsonText);
 
 		wifiInstance.server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
 		wifiInstance.server.send(200, "application/json", jsonText);
@@ -198,7 +202,7 @@ void setup()
 		String jsonText;
 		root.prettyPrintTo(jsonText);
 
-		debugger.println(debug::dbInfo,jsonText);
+		//debugger.println(debug::dbInfo,jsonText);
 
 		wifiInstance.server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
 		wifiInstance.server.send(200, "application/json", jsonText);
@@ -228,18 +232,28 @@ void setup()
 		wifiInstance.server.send(200, "application/json", jsonText);
 	});
 
-
-
+#ifdef ESP8266
 	fs::Dir dir = SPIFFS.openDir("/");
-	while (dir.next()) {
-		String file = dir.fileName();
-
+	while (dir.next()) 
+#else
+	fs::File root = SPIFFS.open("/");
+	fs::File dir;
+	while(dir= root.openNextFile())
+#endif
+	{
+		String file =
+#ifdef ESP8266
+			dir.fileName();
+#else
+			dir.name();
+#endif
 		// cache it for an hour
 		wifiInstance.server.serveStatic(file.c_str(), SPIFFS, file.c_str(), "");
 
 		debugger.printf(debug::dbVerbose, "Serving %s\n\r", file.c_str());
 
 	}
+
 
 	startedMillis=lastMillis = millis();
 }
@@ -285,7 +299,7 @@ void loop()
 
 		oled.setInverse(!collecting);
 
-		String topLine(current, 1);
+		String topLine(current, 0);
 		topLine += "ma ";
 
 		topLine += String(projectedMAH, 0);
