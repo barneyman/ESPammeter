@@ -19,6 +19,11 @@
 // instance
 Adafruit_INA219 ina219;
 SerialDebug debugger(debug::dbVerbose);// (debug::dbImportant);
+
+// the "big" oled is ... 128x64
+// the shield is 64x48
+//#define _OLED_SHIELD
+
 SSD1306Device oled;
 
 #include <myWifi.h>
@@ -116,6 +121,8 @@ void setup()
 	delay(2000);
 
 	oled.on();
+
+
 	oled.switchRenderFrame();
 
 	debugger.println(debug::dbInfo, "Running");
@@ -271,6 +278,7 @@ bool reopenWorkingValue = true;
 #define _HOUR_IN_MS	(float)(60*60*1000)
 
 
+
 void loop()
 {
 
@@ -310,18 +318,44 @@ void loop()
 		nextLine += String(minCurrent, 0);
 		nextLine += " min";
 
-		oled.setFont(FONT8X16);
-
 		oled.clear();
+
+
+#ifdef _OLED_SHIELD
+		oled.setDisplayStartLine(32);
+		//oled.setDisplayOffset(64);
+#endif
+		oled.setComPinsHardwareConfiguration(1,0);
+		oled.setMultiplexRatio(63);
+
+#ifdef _OLED_SHIELD
+		oled.setFont(FONT6X8);
+#else
+		oled.setFont(FONT8X16);
+#endif
+
+#ifdef _OLED_SHIELD
+		//oled.setCursor((64 - (topLine.length() * 6))+32, 1);
+		oled.setCursor(26, 0);
+#else
 		oled.setCursor((128-(topLine.length()*8)), 0);
+#endif
 		oled.print(topLine);
 
-		oled.setFont(FONT6X8);
 
+#ifdef _OLED_SHIELD
+		oled.setCursor(26, 2);
+#else
+		oled.setFont(FONT6X8);
 		oled.setCursor(0, 2);
+#endif
 		oled.print(nextLine);
 
+#ifdef _OLED_SHIELD
+		oled.setCursor(32, 3);
+#else
 		oled.setCursor(0, 3);
+#endif
 		nextLine = String(powerConsumed, 1);
 		nextLine += " maH in ";
 
