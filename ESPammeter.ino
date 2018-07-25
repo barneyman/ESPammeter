@@ -22,9 +22,13 @@ SerialDebug debugger(debug::dbVerbose);// (debug::dbImportant);
 
 // the "big" oled is ... 128x64
 // the shield is 64x48
-//#define _OLED_SHIELD
+#define _OLED_SHIELD
 
-SSD1306Device oled;
+#ifdef _OLED_SHIELD
+SSD1306_64x48 oled;
+#else
+SSD1306_128x64 oled;
+#endif
 
 #include <myWifi.h>
 myWifiClass wifiInstance("wemos_", &debugger);
@@ -121,9 +125,9 @@ void setup()
 	delay(2000);
 
 	oled.on();
-
-
+	oled.clear();
 	oled.switchRenderFrame();
+	oled.setContrast(200);
 
 	debugger.println(debug::dbInfo, "Running");
 
@@ -277,7 +281,7 @@ bool reopenWorkingValue = true;
 
 #define _HOUR_IN_MS	(float)(60*60*1000)
 
-
+int ipFlag = 0;
 
 void loop()
 {
@@ -305,72 +309,84 @@ void loop()
 		float hourRatio = ((float)(totalMillis) / _HOUR_IN_MS);
 		float projectedMAH = powerConsumed / hourRatio;
 
-		oled.setInverse(!collecting);
+		oled.setCursor(0, 0);
 
-		String topLine(current, 0);
-		topLine += "ma ";
+		if (ipFlag%5)
+		{
 
-		topLine += String(projectedMAH, 0);
-		topLine += "maH";
+			oled.setInverse(!collecting);
 
-		String nextLine(maxCurrent, 0);
-		nextLine += " max ";
-		nextLine += String(minCurrent, 0);
-		nextLine += " min";
-
-		oled.clear();
-
-
+			oled.setFont(FONT8X16);
 #ifdef _OLED_SHIELD
-		oled.setDisplayStartLine(32);
-		//oled.setDisplayOffset(64);
-#endif
-		oled.setComPinsHardwareConfiguration(1,0);
-		oled.setMultiplexRatio(63);
-
-#ifdef _OLED_SHIELD
-		oled.setFont(FONT6X8);
+			oled.printf("%.0f ma\t\n", current);
+			oled.setFont(FONT6X8);
+			oled.printf(">%.0f maH\t\n\t\n", projectedMAH);
 #else
-		oled.setFont(FONT8X16);
+			oled.printf("%.0fma %.1fmaH\t\n\t\n", current, projectedMAH);
 #endif
+
+
+#ifndef _OLED_SHIELD
+			oled.printf("%d mx %d mn\t\n", (int)maxCurrent, (int)minCurrent);
+#endif
+
+
+			unsigned long secs = totalMillis / 1000;
 
 #ifdef _OLED_SHIELD
-		//oled.setCursor((64 - (topLine.length() * 6))+32, 1);
-		oled.setCursor(26, 0);
+			oled.printf("%.2f maH\t\n", powerConsumed);
+			oled.printf("in %lu:%02lu\t", secs / 60, secs % 60);
 #else
-		oled.setCursor((128-(topLine.length()*8)), 0);
+			oled.printf("%.1f maH %lu:%02lu\t", powerConsumed, secs / 60, secs % 60);
 #endif
-		oled.print(topLine);
 
+		}
+		else
+		{
+			oled.setFont(FONT6X8);
+			switch (wifiInstance.currentMode)
+			{
+			case myWifiClass::modeOff:
+				oled.printf("Off\t");
+				break;
+			case myWifiClass::modeAP:
+				oled.printf("AP\t\n");
+				oled.printf("%s\t\n", WiFi.softAPSSID().c_str());
+				// 192.168.4.1
+				oled.printf("%s\t\n", WiFi.softAPIP().toString().c_str());
+				break;
+			case myWifiClass::modeSTA:
+				oled.printf("STA\t\n");
+				oled.printf("%s\t\n", WiFi.SSID().c_str());
+				oled.printf("%s\t\n", WiFi.localIP().toString().c_str());
+				break;
+			case myWifiClass::modeSTA_unjoined:
+				oled.printf("STA\t\nunjoined\t\n");
+				break;
+			case myWifiClass::modeSTAspeculative:
+				oled.printf("STA!\t\n");
+				break;
+			case myWifiClass::modeSTAandAP:
+				oled.printf("STA AP\t\n");
+				oled.printf("%s\t\n", WiFi.softAPSSID().c_str());
+				oled.printf("%s\t\n", WiFi.softAPIP().toString().c_str());
+				oled.printf("%s\t\n", WiFi.SSID().c_str());
+				oled.printf("%s\t\n", WiFi.localIP().toString().c_str());
+				break;
+			case myWifiClass::modeCold:
+				oled.printf("cold\t\n");
+				break;
+			case myWifiClass::modeUnknown:
+				oled.printf("???\t\n");
+				break;
+			}
+			//oled.printf("%s\t", WiFi.)
+			oled.clearToEOS();
 
-#ifdef _OLED_SHIELD
-		oled.setCursor(26, 2);
-#else
-		oled.setFont(FONT6X8);
-		oled.setCursor(0, 2);
-#endif
-		oled.print(nextLine);
+		}
 
-#ifdef _OLED_SHIELD
-		oled.setCursor(32, 3);
-#else
-		oled.setCursor(0, 3);
-#endif
-		nextLine = String(powerConsumed, 1);
-		nextLine += " maH in ";
+		ipFlag++;
 
-		unsigned long secs = totalMillis / 1000;
-
-		nextLine += String(secs/60);
-		nextLine += ":";
-		if(secs%60 < 10)
-			nextLine += "0";
-		nextLine += String(secs % 60);
-
-		//debugger.printf(debug::dbInfo, "%.3f %.3f %.3f \n\r", hourRatio, powerConsumed, projectedMAH);
-		//dataReadings.Dump(&debugger);
-
-		oled.print(nextLine);
 		oled.switchFrame();
 
 		if(loopCount)
@@ -389,8 +405,6 @@ void loop()
 	}
 	else
 		workingValue.latest(current);
-
-	//dataReadings.write(loopCount);
 
 	lastCurrent = current;
 	lastMillis = millis();
